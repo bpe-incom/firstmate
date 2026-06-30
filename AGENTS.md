@@ -264,6 +264,7 @@ Load `harness-adapters` before any spawn, recovery, trust-dialog handling, harne
 
 Where dispatch profiles choose *which engine* runs a crew, crew conventions choose *how a crew writes code*: reusable coding-convention presets - house style, comment policy, language idioms - that firstmate injects into a crewmate's brief.
 This is the durable answer to "the crews keep ignoring my conventions": codify the standing rule once and it rides every relevant dispatch.
+To author or edit conventions together with the captain, use the captain-invocable `/crew-conventions` skill, which walks through scope, naming, and the rule text, then writes and validates the files below.
 
 Two optional, LOCAL, gitignored files under `config/`, parallel to `crew-dispatch.json` and firstmate-maintained but human-editable:
 
