@@ -492,8 +492,13 @@ fi
 [ -f "$BRIEF" ] || { echo "error: no brief at $BRIEF" >&2; exit 1; }
 
 # Same session when firstmate already runs inside tmux; dedicated session otherwise.
+# Target the current session by its session id (e.g. "$4"), not its name: a numeric
+# session name like "0" is ambiguous as a bare tmux target (read as a window index
+# in the current session), so list-windows/new-window would land the window in the
+# wrong session at the wrong index. The session id can never collide with a window
+# index, and "$SES:$W" stays a valid target for every later send-keys/display-message.
 if [ -n "${TMUX:-}" ]; then
-  SES=$(tmux display-message -p '#S')
+  SES=$(tmux display-message -p '#{session_id}')
 else
   tmux has-session -t firstmate 2>/dev/null || tmux new-session -d -s firstmate
   SES=firstmate
