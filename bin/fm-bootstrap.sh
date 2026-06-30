@@ -372,6 +372,23 @@ crew_dispatch_validate() {
   ' "$file"
 }
 
+crew_conventions_validate() {
+  local file err
+  file="$CONFIG/crew-conventions.json"
+  [ -f "$file" ] || return 0
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "MISSING: jq (install: $(install_cmd jq))"
+    return 0
+  fi
+  err=$("$FM_ROOT/bin/fm-conventions.sh" validate 2>/dev/null || true)
+  if [ -n "$err" ]; then
+    echo "CREW_CONVENTIONS: invalid config/crew-conventions.json - $err"
+    return 0
+  fi
+  echo "CREW_CONVENTIONS: active config/crew-conventions.json"
+  "$FM_ROOT/bin/fm-conventions.sh" list 2>/dev/null | sed 's/^/  /'
+}
+
 if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: fm-bootstrap.sh install <tool>..." >&2; exit 1; }
@@ -406,6 +423,7 @@ crew=
 [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
 [ -n "$crew" ] && [ "$crew" != "default" ] && echo "CREW_HARNESS_OVERRIDE: $crew"
 crew_dispatch_validate
+crew_conventions_validate
 if ! fm_backlog_backend_manual "$CONFIG"; then
   if fm_tasks_axi_compatible; then
     echo "TASKS_AXI: available"

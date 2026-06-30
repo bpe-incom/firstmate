@@ -26,8 +26,11 @@
 
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
-# environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend}"
+# environment only in tests. Items must not contain whitespace. An item with a
+# trailing slash (e.g. "conventions/") is a DIRECTORY item: its immediate files
+# are mirrored (copied when content differs, deleted downstream when the primary
+# drops them), so crew convention preset bodies travel alongside the rules file.
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json crew-harness backlog-backend crew-conventions.json conventions/}"
 
 copy_inheritable_file() {
   local src=$1 dest=$2 dest_parent tmp
@@ -82,6 +85,38 @@ destination_allows_inherited_item() {
 # write, so a primary with no inheritable config set is a complete no-op (it
 # leaves the secondmate home exactly as it was - the backward-compatible path).
 # Returns non-zero only when the destination cannot be created or written.
+# propagate_inheritable_dir <src-config-dir> <dest-config-dir> <dir-name>
+# Mirror the immediate files of a directory item (e.g. config/conventions/) from
+# the primary to a secondmate home: copy each file whose content differs, and
+# delete inherited files the primary no longer has. An absent source directory
+# clears the inherited files downstream (primary-authoritative, like the file
+# path). Nested subdirectories are not propagated; convention presets are flat.
+propagate_inheritable_dir() {
+  local src_config=$1 dest_config=$2 dir=$3 src_dir dest_dir f base
+  src_dir="$src_config/$dir"
+  dest_dir="$dest_config/$dir"
+  if [ -d "$src_dir" ]; then
+    for f in "$src_dir"/*; do
+      [ -f "$f" ] || continue
+      base=${f##*/}
+      destination_allows_inherited_item "$dest_config" "$dir/$base" || continue
+      if [ -L "$dest_dir/$base" ] || [ ! -f "$dest_dir/$base" ] || ! cmp -s "$f" "$dest_dir/$base"; then
+        copy_inheritable_file "$f" "$dest_dir/$base" || return 1
+      fi
+    done
+  fi
+  if [ -d "$dest_dir" ]; then
+    for f in "$dest_dir"/*; do
+      [ -f "$f" ] || continue
+      base=${f##*/}
+      [ -f "$src_dir/$base" ] && continue
+      destination_allows_inherited_item "$dest_config" "$dir/$base" || continue
+      rm -f "$f" 2>/dev/null || return 1
+    done
+  fi
+  return 0
+}
+
 propagate_inheritable_config() {
   local src_config=$1 dest_config=$2 item src dest
   [ -n "$src_config" ] || return 1
@@ -89,6 +124,12 @@ propagate_inheritable_config() {
   for item in $FM_INHERITABLE_CONFIG; do
     case "$item" in
       ''|/*|.|..|../*|*/../*|*/..) return 1 ;;
+    esac
+    case "$item" in
+      */)
+        propagate_inheritable_dir "$src_config" "$dest_config" "${item%/}" || return 1
+        continue
+        ;;
     esac
     src="$src_config/$item"
     dest="$dest_config/$item"

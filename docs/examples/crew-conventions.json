@@ -1,0 +1,10 @@
+{
+  "always": ["base"],
+  "rules": [
+    {
+      "when": "F#/.NET work, or any task touching .fs, .fsi, .fsx, or .cs files.",
+      "use": ["dotnet-fsharp"],
+      "why": "The captain's .NET/F# house style; crews otherwise over-document and miss conventions."
+    }
+  ]
+}

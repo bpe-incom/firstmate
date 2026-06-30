@@ -73,6 +73,8 @@ bin/                 helper scripts, committed; read each script's header before
 .env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 14
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited: the primary pushes this into every secondmate home's config/ (section 4), so a secondmate's own crewmates use the primary's value
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by secondmate homes
+config/crew-conventions.json  optional crew conventions; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose which coding-convention presets a crewmate's brief carries (section 4). Inherited by secondmate homes
+config/conventions/<name>.md  bodies of the named convention presets referenced by crew-conventions.json; LOCAL, gitignored; inherited as a directory by secondmate homes
 config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents; LOCAL, gitignored; absent or "default" falls back to config/crew-harness then firstmate's own (section 4). The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = default tasks-axi backend, "manual" = force hand-editing; inherited by secondmate homes (section 10)
 config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
@@ -118,7 +120,7 @@ Set `FM_FLEET_PRUNE=0` to temporarily disable that branch pruning.
 Bootstrap also sweeps every live secondmate home, fast-forwarding each one's worktree to firstmate's own current default-branch commit so the fleet stays converged on whatever version firstmate is on.
 This is a purely local fast-forward (every secondmate home is a worktree of this same repo, sharing one object store), never a fetch from origin and never a surprise pull: the version followed is simply whatever the primary is currently on, which only the captain changes deliberately via `git pull` or `/updatefirstmate`.
 A tracked-files fast-forward never touches the gitignored operational dirs, so a secondmate's backlog, projects, and in-flight work are never disturbed; a dirty, diverged, or in-flight home is skipped untouched.
-The same sweep also propagates the primary's declared inheritable config (`config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend`; sections 4 and 10) into each live secondmate home's `config/`, so every secondmate's own crewmates, dispatch profiles, and backlog backend stay on the primary's settings.
+The same sweep also propagates the primary's declared inheritable config (`config/crew-dispatch.json`, `config/crew-harness`, `config/backlog-backend`, and `config/crew-conventions.json` with its `config/conventions/` presets; sections 4 and 10) into each live secondmate home's `config/`, so every secondmate's own crewmates, dispatch profiles, and backlog backend stay on the primary's settings.
 Because `config/` is gitignored this is a separate, primary-authoritative copy independent of the tracked-files fast-forward: it re-converges every live home whether or not its tracked files advanced, and it touches only the declared inheritable items (never `config/secondmate-harness`).
 The sweep reports the `NUDGE_SECONDMATES:` line below only when a running secondmate actually advanced with an instruction change, so firstmate knows which ones to live-converge.
 Silence means all good: say nothing and move on.
@@ -133,6 +135,8 @@ Otherwise it prints one line per problem or capability fact; handle each:
 - `CREW_HARNESS_OVERRIDE: <name>` - record and use the override silently; surface a harness fact only if it actually blocks work or the captain asks.
 - `CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>` - the optional dispatch profile file exists but failed low-cost bootstrap validation; continue with the normal fallback chain, resolve and pass the chosen fallback harness explicitly while the file remains present, fix the JSON, unverified harness name, or invalid harness/effort pair when convenient, and do not select a bad profile.
 - `CREW_DISPATCH: active config/crew-dispatch.json` - bootstrap validated the optional dispatch profile file and printed its active rules as `rule: <when> -> <harness[/model[/effort]]>` lines, plus `default:` when present.
+- `CREW_CONVENTIONS: invalid config/crew-conventions.json - <reason>` - the optional crew conventions file exists but failed low-cost bootstrap validation (malformed JSON, a bad rule, or a referenced preset with no `config/conventions/<name>.md`); proceed without conventions, fix the file when convenient, and do not inject a broken preset.
+- `CREW_CONVENTIONS: active config/crew-conventions.json` - bootstrap validated the optional crew conventions file and printed its `always` presets, each rule as `rule: <when> -> <preset[, preset]>`, and the available presets, so the current convention policy is visible at every session start.
   Keep this block top-of-mind during intake; it is the reminder that every crewmate or scout dispatch must consult the rules before spawning.
 - `FLEET_SYNC: <repo>: skipped: <reason>` - a benign one-off skip (offline, no origin, local-only); bootstrap continued, investigate only if it blocks work.
 - `FLEET_SYNC: <repo>: recovered: <detail>` - the clone had drifted onto a clean detached HEAD holding no unique commits and the sync self-healed it (re-attached the default branch and fast-forwarded); no action needed, it is reported only so the self-heal is visible.
@@ -239,11 +243,12 @@ So an absent or `default` `config/secondmate-harness` behaves exactly as before 
 `bin/fm-spawn.sh` resolves a `--secondmate` launch through `secondmate` mode and a crewmate/scout launch through `crew` mode; an explicit per-spawn `--harness` flag or positional harness arg still overrides either kind.
 The split is durable: every secondmate respawn (recovery, `/updatefirstmate`, restart) re-resolves from `config/secondmate-harness`, so it survives restarts without being recorded per-task.
 
-`config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend` are inherited; `config/secondmate-harness` is not.
+`config/crew-dispatch.json`, `config/crew-harness`, `config/backlog-backend`, `config/crew-conventions.json`, and the `config/conventions/` preset directory are inherited; `config/secondmate-harness` is not.
 The primary pushes its declared inheritable config down into each secondmate home's `config/` - at secondmate spawn and on the bootstrap secondmate sweep (section 3) - so a secondmate's OWN crewmates, dispatch profiles, and backlog backend use the primary's settings (primary `config/crew-harness=codex` makes a secondmate's crewmates spawn on codex too).
 Inheritance copies the literal `config/crew-harness` file, so for a secondmate's own crewmates to run on the primary's crewmate harness the captain must set `config/crew-harness` to a concrete adapter name, such as `codex`.
 If `config/crew-harness` is unset or `default`, there is no concrete value to inherit, so the secondmate's own crewmates fall back to the secondmate's own/detected harness rather than the primary's effective crewmate harness.
 Inheritance copies `config/crew-dispatch.json`, so secondmates apply the same best-fit dispatch profile behavior for their own crewmates.
+Inheritance copies `config/crew-conventions.json` and the `config/conventions/` preset directory, so a secondmate's own crewmates carry the same coding conventions.
 Inheritance also copies `config/backlog-backend`, so a primary opt-out with `manual` makes secondmates hand-edit too.
 When the file is absent, every home uses the default tasks-axi backend path independently.
 The mechanism is generic over a single declared list (`fm-config-inherit-lib.sh`), primary-authoritative (re-pushed every convergence, mirroring absence), and easy to extend; `config/secondmate-harness` is deliberately excluded because secondmates never spawn secondmates.
@@ -254,6 +259,41 @@ The mechanics (launch command, autonomy flag, turn-end hook) live in `bin/fm-spa
 If `config/crew-harness` or `config/secondmate-harness` names an unverified one, tell the captain and fall back to your own harness until it is verified.
 If the captain asks for a new harness, load `harness-adapters`, verify it empirically with a trivial supervised task, then commit the script and knowledge changes.
 Load `harness-adapters` before any spawn, recovery, trust-dialog handling, harness-specific skill invocation, interrupt, exit, resume, or adapter verification.
+
+### Crew conventions
+
+Where dispatch profiles choose *which engine* runs a crew, crew conventions choose *how a crew writes code*: reusable coding-convention presets - house style, comment policy, language idioms - that firstmate injects into a crewmate's brief.
+This is the durable answer to "the crews keep ignoring my conventions": codify the standing rule once and it rides every relevant dispatch.
+
+Two optional, LOCAL, gitignored files under `config/`, parallel to `crew-dispatch.json` and firstmate-maintained but human-editable:
+
+- `config/crew-conventions.json` - the rules and the always-on list.
+- `config/conventions/<name>.md` - the body of each named preset (markdown).
+
+Schema:
+
+```json
+{
+  "always": ["<preset-name>", ...],
+  "rules": [
+    { "when": "<natural-language condition describing a kind of task>", "use": ["<preset-name>", ...], "why": "<optional rationale>" }
+  ]
+}
+```
+
+Every name in `always` and in each rule's `use` must have a matching `config/conventions/<name>.md`.
+See `docs/examples/crew-conventions.json` and `docs/examples/conventions/` for a documented starting point to copy into local `config/`.
+
+When `config/crew-conventions.json` is present, read it during intake before every crewmate or scout dispatch.
+Selection is your JUDGMENT, exactly as for dispatch profiles and secondmate scope - the shell scripts never match the natural-language `when` text.
+List the rules and presets with `bin/fm-conventions.sh list`.
+Unlike dispatch profiles (single best-fit), conventions STACK: apply *every* rule whose `when` fits the task, take the union of their `use` presets, and pass them to the brief.
+The captain may override in the moment ("skip the F# rules here", "also apply house-style"); honor that for the dispatch.
+Pass the chosen presets to the scaffold with `--convention <name>` (section 11), and name the ones you applied in your dispatch reply so a wrong call costs one correction.
+
+`always` presets are the safety net: `bin/fm-brief.sh` injects every `always` preset into every brief automatically, so a universal rule (for example "no doc comments") is never lost even when you select nothing else.
+There is deliberately no hard refusal backstop like dispatch's explicit-harness requirement, because a task can legitimately resolve to just the `always` base with no matched rule.
+`bin/fm-conventions.sh render <name>...` previews the rendered stack; an unknown preset name is a hard error so a typo never ships an empty preset.
 
 ## 5. Recovery (run at every session start, after bootstrap)
 
@@ -417,6 +457,10 @@ Then classify readiness:
 Keep dependency judgment coarse: same repo plus overlapping area means serialize; everything else runs parallel.
 For `no-mistakes` projects, the pipeline rebase step absorbs mild overlaps; for other modes, have the crewmate rebase before review or merge if needed.
 
+Then resolve crew conventions when `config/crew-conventions.json` is present (section 4).
+List the rules with `bin/fm-conventions.sh list`, judge which rules' `when` fit the resolved project and the work, stack every matching rule's presets, and pass them to the brief with `--convention` (section 11).
+Always-on presets ride automatically; you add judgment-matched ones on top, and name the ones you applied in your dispatch reply.
+
 Write the brief per section 11.
 
 ### Spawn
@@ -450,7 +494,7 @@ For `kind=secondmate`, the script creates the same kind of window but starts dir
 Before launching a secondmate, the script fast-forwards its home worktree to firstmate's own current default-branch commit, so a freshly spawned or recovery-respawned secondmate always starts on firstmate's current version.
 This is a purely local fast-forward of tracked files - never a fetch from origin, and never touching the gitignored operational dirs - so the secondmate's backlog, projects, and any prior in-flight work are untouched; a dirty, diverged, or in-flight home is left as-is and launches unchanged.
 If that pre-launch fast-forward is skipped, `fm-spawn.sh` prints a concise warning to stderr and still launches the secondmate from its unchanged checkout.
-The spawn also propagates the primary's declared inheritable config (`config/crew-dispatch.json`, `config/crew-harness`, and `config/backlog-backend`; sections 4 and 10) into the secondmate home's `config/`, so the secondmate's own crewmates, dispatch profiles, and backlog backend inherit the primary's settings; this is a separate gitignored-file copy from the tracked-files fast-forward and a primary with no inheritable config set is a no-op.
+The spawn also propagates the primary's declared inheritable config (`config/crew-dispatch.json`, `config/crew-harness`, `config/backlog-backend`, and `config/crew-conventions.json` with its `config/conventions/` presets; sections 4 and 10) into the secondmate home's `config/`, so the secondmate's own crewmates, dispatch profiles, and backlog backend inherit the primary's settings; this is a separate gitignored-file copy from the tracked-files fast-forward and a primary with no inheritable config set is a no-op.
 No nudge is needed at spawn because the agent reads `AGENTS.md` fresh on launch.
 Project worktrees start at detached HEAD on a clean default branch; ship briefs tell the crewmate to create its branch, while scout briefs keep the worktree scratch.
 After spawning, peek the pane to confirm the crewmate is processing the brief and handle any trust dialog with `harness-adapters`.
@@ -748,6 +792,7 @@ The scaffold reads the mode via `fm-project-mode.sh`, so you do not pass it.
 Ship briefs also include the project-memory contract: run `bin/fm-ensure-agents-md.sh` when the project already has agent-memory files or when the task produced durable project-intrinsic knowledge, then record proportionate learnings in `AGENTS.md`.
 For scout tasks add `--scout`: the scaffold swaps the definition of done for the report contract (findings to `data/<id>/report.md`, no branch, no push, no PR) and declares the worktree scratch; scout is mode-agnostic.
 Scout briefs do not include the project-memory step, because their deliverable is a report rather than a committed project change.
+Pass the crew conventions you selected at intake (section 4) with `--convention <name>` (repeatable, or comma-separated: `--convention base,dotnet-fsharp`); the scaffold renders those plus any `always` presets into a `# Conventions` section of the brief, for ship and scout alike, and is byte-identical to the plain scaffold when no conventions resolve. Secondmate charters ignore `--convention`.
 For secondmates use `bin/fm-brief.sh <id> --secondmate <project>...`.
 The scaffold writes a charter brief instead of a task brief.
 Set `FM_SECONDMATE_CHARTER='<charter>'` to fill the charter text and `FM_SECONDMATE_SCOPE='<scope>'` when the routing scope differs.

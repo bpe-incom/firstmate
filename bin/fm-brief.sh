@@ -6,8 +6,13 @@
 # description, acceptance criteria, and context, and may adjust other sections
 # when the task genuinely deviates (e.g. working an existing external PR instead
 # of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> [--scout]
+# Usage: fm-brief.sh <task-id> <repo-name> [--scout] [--convention <name>]...
 #        fm-brief.sh <task-id> --secondmate <project>...
+#   --convention selects a crew convention preset (config/conventions/<name>.md);
+#   repeatable, or comma-separated (--convention a,b). The named presets plus any
+#   `always` presets from config/crew-conventions.json are rendered into a
+#   # Conventions section of the brief (see bin/fm-conventions.sh). Conventions
+#   apply to ship and scout briefs; secondmate charters ignore them.
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   --secondmate writes a persistent secondmate charter. The project list
@@ -40,12 +45,24 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 KIND=ship
 POS=()
-for a in "$@"; do
-  case "$a" in
+CONV_SEL=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --scout) KIND=scout ;;
     --secondmate) KIND=secondmate ;;
-    *) POS+=("$a") ;;
+    --convention)
+      shift
+      [ "$#" -gt 0 ] || { echo "error: --convention requires a name" >&2; exit 2; }
+      IFS=',' read -ra _cs <<< "$1"
+      CONV_SEL+=("${_cs[@]}")
+      ;;
+    --convention=*)
+      IFS=',' read -ra _cs <<< "${1#--convention=}"
+      CONV_SEL+=("${_cs[@]}")
+      ;;
+    *) POS+=("$1") ;;
   esac
+  shift
 done
 ID=${POS[0]}
 
@@ -128,13 +145,39 @@ fi
 
 REPO=${POS[1]}
 
+# Crew conventions (AGENTS.md crew-conventions section): always-on presets ride
+# every brief; firstmate adds judgment-matched ones via --convention. Dedupe
+# always-first, then render the stack (bin/fm-conventions.sh) into a # Conventions
+# section. With no presets at all, CONVENTIONS stays empty and the brief is
+# byte-identical to the no-convention scaffold.
+CONV_NAMES=()
+add_conv() {
+  local n=$1 e
+  for e in "${CONV_NAMES[@]:-}"; do [ "$e" = "$n" ] && return 0; done
+  CONV_NAMES+=("$n")
+}
+while IFS= read -r _c; do
+  [ -n "$_c" ] && add_conv "$_c"
+done < <("$FM_ROOT/bin/fm-conventions.sh" always 2>/dev/null || true)
+for _c in "${CONV_SEL[@]:-}"; do
+  [ -n "$_c" ] && add_conv "$_c"
+done
+CONVENTIONS=""
+if [ "${#CONV_NAMES[@]}" -gt 0 ]; then
+  _rendered=$("$FM_ROOT/bin/fm-conventions.sh" render "${CONV_NAMES[@]}") || {
+    echo "error: could not resolve conventions: ${CONV_NAMES[*]}" >&2; exit 1; }
+  if [ -n "$_rendered" ]; then
+    CONVENTIONS=$'\n'"# Conventions"$'\n'"Apply these standing conventions to all work in this task. They are mandatory unless an explicit instruction above overrides them."$'\n\n'"$_rendered"$'\n'
+  fi
+fi
+
 if [ "$KIND" = scout ]; then
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 
 # Task
 {TASK}
-
+${CONVENTIONS}
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 This is a SCOUT task: the deliverable is a written report, not a PR.
@@ -227,7 +270,7 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 
 # Task
 {TASK}
-
+${CONVENTIONS}
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 
